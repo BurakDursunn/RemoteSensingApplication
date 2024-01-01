@@ -5,6 +5,9 @@ import random
 import time
 from CONFIG import TEMPERATURE_SENSOR_HOST, TEMPERATURE_SENSOR_PORT, HUMIDITY_SENSOR_HOST, HUMIDITY_SENSOR_PORT
 
+last_humidity = {}
+last_temperature = {}
+
 
 class TemperatureSensor(threading.Thread):
     def __init__(self, socket, gateway_socket):
@@ -13,10 +16,18 @@ class TemperatureSensor(threading.Thread):
         self.gateway_socket = gateway_socket
 
     def run(self):
+        global last_temperature
         while True:
             temperature = random.uniform(20, 30)
             timestamp = time.time()
             message = f'TEMPERATURE {temperature} {timestamp}'
+            temperature_last = float(temperature)
+            temperature_last = round(temperature_last, 1)
+            timestamp_last = float(timestamp)
+            timestamp_last = time.strftime(
+                '%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
+            last_temperature['temperature'] = f"{temperature_last} °C"
+            last_temperature['timestamp'] = timestamp_last
             self.socket.send(message.encode())
             time.sleep(1)
 
@@ -29,9 +40,19 @@ class HumiditySensor(threading.Thread):
         self.address = address
 
     def run(self):
+        global last_humidity
         while True:
             humidity = random.uniform(40, 90)
             timestamp = time.time()
+
+            # Save the last humidity
+            humidity_last = float(humidity)
+            humidity_last = round(humidity_last, 1)
+            timestamp_last = float(timestamp)
+            timestamp_last = time.strftime(
+                '%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
+            last_humidity['humidity'] = f"{humidity_last} %"
+            last_humidity['timestamp'] = timestamp_last
 
             if humidity > 80:
                 message = f'HUMIDITY {humidity} {timestamp}'
