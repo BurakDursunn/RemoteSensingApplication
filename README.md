@@ -16,7 +16,7 @@ To install and set up the RemoteSensingApplication, follow these steps:
 1. **Clone the Repository:**
 
    ```bash
-   git clone [repository_url]
+   git clone https://github.com/BurakDursunn/RemoteSensingApplication.git
    cd RemoteSensingApplication
    ```
 
