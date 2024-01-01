@@ -49,8 +49,7 @@ class RemoteSensingWebServer(BaseHTTPRequestHandler):
             if not last_humidity:
                 # Import and modify HTML for humidity
                 html = self.import_html('last_humidity.html')
-                row = ''
-                row += f'<tr><td>No data</td><td>No data</td></tr>'
+                row = f'<tr><td>No data</td><td>No data</td><td>No data</td></tr>'
                 html_content = html.replace(
                     '<!-- humidity-data on python -->', row)
 
