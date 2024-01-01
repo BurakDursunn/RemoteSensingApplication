@@ -1,3 +1,4 @@
+# CONFIG.py
 # Server configuration
 WEB_SERVER_HOST = 'localhost'
 WEB_SERVER_PORT = 8080

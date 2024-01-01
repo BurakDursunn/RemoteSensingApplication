@@ -1,3 +1,4 @@
+# app.py
 import subprocess
 import webbrowser
 import time
@@ -22,5 +23,3 @@ webbrowser.open_new_tab('http://localhost:8080/gethumidity')
 sensor_process.wait()
 gateway_process.wait()
 server_process.wait()
-
-# Clear the ports

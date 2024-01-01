@@ -1,3 +1,4 @@
+# kill_app.py
 import subprocess
 import time
 from CONFIG import TEMPERATURE_SENSOR_PORT, HUMIDITY_SENSOR_PORT, GATEWAY_SOCKET_PORT, WEB_SERVER_PORT
