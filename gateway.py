@@ -1,68 +1,186 @@
 import socket
 import threading
 import time
-import signal
 import sys
+import http.client
+from CONFIG import GATEWAY_SOCKET_HOST, GATEWAY_SOCKET_PORT, TEMPERATURE_SENSOR_HOST, TEMPERATURE_SENSOR_PORT, HUMIDITY_SENSOR_HOST, HUMIDITY_SENSOR_PORT
 
-def receive_temperature_data(tcp_socket, server_socket):
-    last_temperature_time = time.time()
+temperature_lock = threading.Lock()
+humidity_lock = threading.Lock()
 
-    while not exit_signal.is_set():
-        data = tcp_socket.recv(1024).decode()
-        print(f"Received Temperature Data: {data}")
-        # Parse and send to server
-        server_socket.send(f"TEMP {data}".encode())
-        last_temperature_time = time.time()
-        time.sleep(1)
 
-        # Check if temperature sensor is inactive
-        if time.time() - last_temperature_time > 3:
-            print("TEMP SENSOR OFF")
-            server_socket.send("TEMP SENSOR OFF".encode())
+class TemperatureSensorReciever(threading.Thread):
+    def __init__(self, temperature_sensor_socket):
+        super().__init__()
+        self.temperature_sensor_socket = temperature_sensor_socket
+        self.last_alive = 0
 
-def receive_humidity_data(udp_socket, server_socket):
-    last_alive_time = time.time()
+    def send_data_to_gateway(self, temperature, timestamp):
+        # Send the data to server
+        connection = http.client.HTTPConnection(
+            GATEWAY_SOCKET_HOST, GATEWAY_SOCKET_PORT)
+        headers = {'Content-type': 'text/plain'}
+        path = '/temperature'
+        data = f"temperature {temperature} {timestamp}"
 
-    while not exit_signal.is_set():
-        data, addr = udp_socket.recvfrom(1024)
-        print(f"Received Humidity Data from {addr}: {data.decode()}")
-        # Parse and send to server
-        server_socket.send(f"HUMIDITY {data.decode()}".encode())
-        last_alive_time = time.time()
-        time.sleep(1)
+        try:
+            connection.request('POST', path, data, headers)
+            response = connection.getresponse()
+            print(
+                f'Temperature data sent successfully. Response: {response.status}, {response.reason}')
+        except Exception as e:
+            print(f'Error while sending temperature data: {e}')
+            connection.close()
+        finally:
+            connection.close()
 
-        # Check if humidity sensor is inactive
-        if time.time() - last_alive_time > 7:
-            print("HUMIDITY SENSOR OFF")
-            server_socket.send("HUMIDITY SENSOR OFF".encode())
+    def parse_data(self, data):
+        # Parse the data
+        data = data.split()
+        temperature = data[1]
+        timestamp = data[2]
+        # str to float
+        temperature = float(temperature)
+        # str to timestamp
+        timestamp = float(timestamp)
 
-def signal_handler(sig, frame):
-    print("Exiting...")
-    exit_signal.set()
+        # Send the data to gateway
+        self.send_data_to_gateway(temperature, timestamp)
+
+    def run(self):
+        self.last_alive = 0
+        while True:
+            data = self.temperature_sensor_socket.recv(1024).decode()
+            if data:
+                self.last_alive = 0
+                with temperature_lock:
+                    self.parse_data(data)
+            else:
+                if self.last_alive > 3:
+                    print("TEMP SENSOR OFF")
+                    with temperature_lock:
+                        self.send_data_to_gateway(
+                            "OFF", time.time())
+                    break
+                self.last_alive += 1
+                time.sleep(1)
+
+
+class HumiditySensorReciever(threading.Thread):
+    def __init__(self, humidity_sensor_socket):
+        super().__init__()
+        self.humidity_sensor_socket = humidity_sensor_socket
+
+    def send_data_to_gateway(self, humidity, timestamp):
+        # Send the data to server
+        connection = http.client.HTTPConnection(
+            GATEWAY_SOCKET_HOST, GATEWAY_SOCKET_PORT)
+        headers = {'Content-type': 'text/plain'}
+        path = '/humidity'
+        data = f"humidity {humidity} {timestamp}"
+
+        try:
+            connection.request('POST', path, data, headers)
+            response = connection.getresponse()
+            print(
+                f'Humidity data sent successfully. Response: {response.status}, {response.reason}')
+        except Exception as e:
+            print(f'Error while sending humidity data: {e}')
+            connection.close()
+        finally:
+            connection.close()
+
+    def parse_data(self, data):
+        # Parse the data
+        data = data.split()
+        humidity = data[1]
+        timestamp = data[2]
+        # str to float
+        humidity = float(humidity)
+        # str to timestamp
+        timestamp = float(timestamp)
+
+        # Send the data to gateway
+        self.send_data_to_gateway(humidity, timestamp)
+
+    def run(self):
+        while True:
+            try:
+                data, address = self.humidity_sensor_socket.recvfrom(1024)
+                if data:
+                    # if data is ALIVE, print it, else parse it
+                    if data.decode() == "ALIVE":
+                        with humidity_lock:
+                            # Send the data to server
+                            self.send_data_to_gateway(
+                                "ALIVE", time.time())
+                    else:
+                        with humidity_lock:
+                            self.parse_data(data.decode())
+            except socket.timeout:
+                print("HUMIDITY SENSOR OFF")
+                with humidity_lock:
+                    # Send the data to server
+                    self.send_data_to_gateway(
+                        "OFF", time.time())
+                break
+
+
+def handshake_tcp(socket):
+    if socket.recv(1024).decode() == 'CONNECT':
+        print("Connection established.")
+        socket.send('OK'.encode())
+        return True
+
+
+def handshake_udp(socket):
+    print("Handshaking UDP connection...")
+    socket.sendto('HELLO UDP SERVER'.encode(),
+                  (HUMIDITY_SENSOR_HOST, HUMIDITY_SENSOR_PORT))
+    if socket.recv(1024).decode() == 'HELLO UDP CLIENT':
+        print("Connection established.")
+        return True
+
 
 if __name__ == "__main__":
-    exit_signal = threading.Event()
-    signal.signal(signal.SIGINT, signal_handler)
+    # Connect to sensors
+    # Create a TCP socket for the temperature sensor
+    temperature_sensor_socket = socket.socket(
+        socket.AF_INET, socket.SOCK_STREAM)
 
-    # Socket for receiving data from sensors
-    tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp_socket.bind(('localhost', 5555))
-    tcp_socket.listen(5)
+    # Connect to the temperature sensor
+    temperature_sensor_socket.connect(
+        (TEMPERATURE_SENSOR_HOST, TEMPERATURE_SENSOR_PORT))
 
-    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_socket.bind(('localhost', 5556))
+    # Handshake with the temperature sensor
+    if handshake_tcp(temperature_sensor_socket):
+        temperature_sensor_reciever = TemperatureSensorReciever(
+            temperature_sensor_socket)
 
-    # Socket for sending data to the server
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.connect(('localhost', 5557))  # Assuming server is running on port 5557
+    # Create a UDP socket for the humidity sensor
+    humidity_sensor_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    humidity_sensor_socket.settimeout(7)
 
-    temperature_thread = threading.Thread(target=receive_temperature_data, args=(tcp_socket, server_socket))
-    humidity_thread = threading.Thread(target=receive_humidity_data, args=(udp_socket, server_socket))
+    # Handshake with the humidity sensor
+    if handshake_udp(humidity_sensor_socket):
+        humidity_sensor_reciever = HumiditySensorReciever(
+            humidity_sensor_socket)
 
-    temperature_thread.start()
-    humidity_thread.start()
+    # Start the threads
+    temperature_sensor_reciever.start()
+    humidity_sensor_reciever.start()
 
-    temperature_thread.join()
-    humidity_thread.join()
-
-    sys.exit(0)
+    try:
+        # Wait for the threads to finish
+        temperature_sensor_reciever.join()
+        humidity_sensor_reciever.join()
+    except KeyboardInterrupt:
+        # Close the sockets
+        temperature_sensor_socket.close()
+        humidity_sensor_socket.close()
+        sys.exit(0)
+    finally:
+        # Close the sockets
+        temperature_sensor_socket.close()
+        humidity_sensor_socket.close()
+        sys.exit(0)
