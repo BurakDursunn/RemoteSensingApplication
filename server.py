@@ -1,17 +1,13 @@
-# server.py
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
+import socket
 import time
-import sys
-from CONFIG import GATEWAY_SOCKET_HOST, GATEWAY_SOCKET_PORT, WEB_SERVER_HOST, WEB_SERVER_PORT
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from CONFIG import SERVER_HOST, SERVER_PORT
 
 # Global variables
 humidity_global = []
 temperature_global = []
 last_humidity = {}
-temperature_sensor_alive = False
-humidity_sensor_alive = False
-shutdown_event = threading.Event()
 
 
 class RemoteSensingWebServer(BaseHTTPRequestHandler):
@@ -91,135 +87,77 @@ class RemoteSensingWebServer(BaseHTTPRequestHandler):
         return html_content
 
 
-class GatewayDataReceiverServerHTTP(BaseHTTPRequestHandler):
-    def check_sensors_alive(self):
-        global temperature_sensor_alive, humidity_sensor_alive
-        if not temperature_sensor_alive and not humidity_sensor_alive:
-            print('ALL SENSORS OFF')
-            shutdown_event.set()
-
-    def do_POST(self):
-        global temperature_sensor_alive, humidity_sensor_alive
-        if self.path == '/humidity':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-            # Get the data from the request body
-            content_length = int(self.headers['Content-Length'])
-            body = self.rfile.read(content_length).decode()
-            # Parse the data
-            data = body.split()
-            humidity = data[1]
-            if humidity == 'OFF':
-                timestamp = data[2]
-                timestamp = float(timestamp)
-                # timestamp to string, format: dd/mm/yyyy hh:mm:ss
-                timestamp = time.strftime(
-                    '%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
-                print('HUMIDITY SENSOR OFF AT', timestamp)
-                humidity_sensor_alive = False
-                # Add the data to the global variable
-                humidity_global.append(
-                    {'humidity': "HUMIDITY SENSOR OFF", 'timestamp': timestamp})
-            elif humidity == 'ALIVE':
-                timestamp = data[2]
-                timestamp = float(timestamp)
-                # timestamp to string
-                timestamp = time.strftime(
-                    '%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
-                print('HUMIDITY SENSOR ALIVE AT', timestamp)
-                humidity_sensor_alive = True
-                # Add the data to the global variable
-                humidity_global.append(
-                    {'humidity': "HUMIDITY SENSOR ALIVE", 'timestamp': timestamp})
-            else:
-                timestamp = data[2]
-                # str to float
-                humidity = float(humidity)
-                humidity = round(humidity, 1)
-                # str to timestamp
-                timestamp = float(timestamp)
-                # timestamp to string
-                timestamp = time.strftime(
-                    '%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
-                # Display the data
-                print(f'Humidity: {humidity} % at {timestamp}')
-                humidity_sensor_alive = True
-                # Add the data to the global variable
-                humidity_global.append(
-                    {'humidity': f"{humidity} %", 'timestamp': timestamp})
-                # Update the last humidity
-                last_humidity['humidity'] = f"{humidity} %"
-                last_humidity['timestamp'] = timestamp
-        elif self.path == '/temperature':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-            # Get the data from the request body
-            content_length = int(self.headers['Content-Length'])
-            body = self.rfile.read(content_length).decode()
-            # Parse the data
-            data = body.split()
-            temperature = data[1]
-            if temperature == 'OFF':
-                timestamp = data[2]
-                timestamp = float(timestamp)
-                # timestamp to string
-                timestamp = time.strftime(
-                    '%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
-                print('TEMPERATURE SENSOR OFF AT', timestamp)
-                temperature_sensor_alive = False
-                # Add the data to the global variable
-                temperature_global.append(
-                    {'temperature': "TEMPERATURE SENSOR OFF", 'timestamp': timestamp})
-            else:
-                timestamp = data[2]
-                # str to float
-                temperature = float(temperature)
-                temperature = round(temperature, 1)
-                # str to timestamp
-                timestamp = float(timestamp)
-                # timestamp to string
-                timestamp = time.strftime(
-                    '%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
-                # Display the data
-                print(f'Temperature: {temperature} C at {timestamp}')
-                temperature_sensor_alive = True
-                # Add the data to the global variable
-                temperature_global.append(
-                    {'temperature': f"{temperature} °C", 'timestamp': timestamp})
-        self.check_sensors_alive()
+def parse_data(data):
+    global humidity_global, temperature_global, last_humidity
+    if data.startswith('TEMP'):
+        data = data.split('|')
+        data[1] = float(data[1])
+        data[1] = round(data[1], 1)
+        data[2] = float(data[2])
+        data[2] = time.strftime('%d/%m/%Y %H:%M:%S',
+                                time.localtime(data[2]))
+        temperature_global.append(
+            {'temperature': f"{data[1]} °C", 'timestamp': data[2]})
+    elif data.startswith('HUMID'):
+        data = data.split('|')
+        data[1] = float(data[1])
+        data[1] = round(data[1], 1)
+        data[2] = float(data[2])
+        data[2] = time.strftime('%d/%m/%Y %H:%M:%S',
+                                time.localtime(data[2]))
+        humidity_global.append(
+            {'humidity': f"{data[1]} %", 'timestamp': data[2]})
+        last_humidity = {'humidity': f"{data[1]} %", 'timestamp': data[2]}
+    elif data.startswith('ALIVE'):
+        data = data.split('|')
+        data[1] = float(data[1])
+        data[1] = time.strftime('%d/%m/%Y %H:%M:%S',
+                                time.localtime(data[1]))
+        humidity_global.append(
+            {'humidity': 'ALIVE', 'timestamp': data[1]})
 
 
-if __name__ == '__main__':
-    # Create a HTTP backend server to receive data from the gateway
-    gateway_server = HTTPServer(
-        (GATEWAY_SOCKET_HOST, GATEWAY_SOCKET_PORT), GatewayDataReceiverServerHTTP)
-    print(
-        f"Gateway data receiver server running on {GATEWAY_SOCKET_HOST}:{GATEWAY_SOCKET_PORT}")
-
-    # Create a HTTP server to display data from the sensors
-    server = HTTPServer((WEB_SERVER_HOST, WEB_SERVER_PORT),
-                        RemoteSensingWebServer)
-    print(f"Web server running on {WEB_SERVER_HOST}:{WEB_SERVER_PORT}")
-
-    # Start server
+def server_listener():
     try:
-        gateway_thread = threading.Thread(target=gateway_server.serve_forever)
-        web_thread = threading.Thread(target=server.serve_forever)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+            server_socket.bind((SERVER_HOST, SERVER_PORT))
+            server_socket.listen()
 
-        gateway_thread.start()
-        web_thread.start()
+            print(f"Server listening on {SERVER_HOST}:{SERVER_PORT}")
 
-        while True:
-            if shutdown_event.is_set():
-                print('\nStopping server')
-                gateway_server.shutdown()
-                server.shutdown()
-                sys.exit(0)
-            time.sleep(1)
+            conn, _ = server_socket.accept()
+
+            # Handshake
+            handshake_request = conn.recv(1024).decode()
+            if 'GATEWAY|HANDSHAKE' in handshake_request:
+                conn.sendall("SERVER|CONNECT".encode())
+                print("Handshake successful")
+
+            while True:
+                data = conn.recv(1024)
+                if not data:
+                    print("Connection closed by gateway.")
+                    break
+
+                data = data.decode()
+                parse_data(data)
+
+            conn.close()
     except KeyboardInterrupt:
-        print('\nStopping server')
-        gateway_server.shutdown()
-        server.shutdown()
-        sys.exit(0)
+        print("Exiting...")
+        exit(0)
+
+
+if __name__ == "__main__":
+    try:
+        server_listener_thread = threading.Thread(target=server_listener)
+        server_listener_thread.start()
+
+        web_server = HTTPServer(('localhost', 8080), RemoteSensingWebServer)
+        print("Web server listening on localhost:8080")
+        web_server.serve_forever()
+
+        server_listener_thread.join()
+    except KeyboardInterrupt:
+        print("Exiting...")
+        exit(0)
