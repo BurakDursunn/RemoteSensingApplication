@@ -63,7 +63,6 @@ class HumiditySensor(threading.Thread):
             if int(timestamp) % 3 == 0:
                 alive_message = 'ALIVE'
                 self.socket.sendto(alive_message.encode(), self.address)
-
             time.sleep(1)
 
 

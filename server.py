@@ -182,7 +182,7 @@ class GatewayDataReceiverServerHTTP(BaseHTTPRequestHandler):
                 temperature_sensor_alive = True
                 # Add the data to the global variable
                 temperature_global.append(
-                    {'temperature': f"{temperature} C", 'timestamp': timestamp})
+                    {'temperature': f"{temperature} °C", 'timestamp': timestamp})
         self.check_sensors_alive()
 
 
