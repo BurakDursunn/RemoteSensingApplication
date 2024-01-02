@@ -113,8 +113,9 @@ class GatewayDataReceiverServerHTTP(BaseHTTPRequestHandler):
             if humidity == 'OFF':
                 timestamp = data[2]
                 timestamp = float(timestamp)
+                # timestamp to string, format: dd/mm/yyyy hh:mm:ss
                 timestamp = time.strftime(
-                    '%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
+                    '%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
                 print('HUMIDITY SENSOR OFF AT', timestamp)
                 humidity_sensor_alive = False
                 # Add the data to the global variable
@@ -123,8 +124,9 @@ class GatewayDataReceiverServerHTTP(BaseHTTPRequestHandler):
             elif humidity == 'ALIVE':
                 timestamp = data[2]
                 timestamp = float(timestamp)
+                # timestamp to string
                 timestamp = time.strftime(
-                    '%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
+                    '%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
                 print('HUMIDITY SENSOR ALIVE AT', timestamp)
                 humidity_sensor_alive = True
                 # Add the data to the global variable
@@ -137,8 +139,9 @@ class GatewayDataReceiverServerHTTP(BaseHTTPRequestHandler):
                 humidity = round(humidity, 1)
                 # str to timestamp
                 timestamp = float(timestamp)
+                # timestamp to string
                 timestamp = time.strftime(
-                    '%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
+                    '%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
                 # Display the data
                 print(f'Humidity: {humidity} % at {timestamp}')
                 humidity_sensor_alive = True
@@ -161,8 +164,9 @@ class GatewayDataReceiverServerHTTP(BaseHTTPRequestHandler):
             if temperature == 'OFF':
                 timestamp = data[2]
                 timestamp = float(timestamp)
+                # timestamp to string
                 timestamp = time.strftime(
-                    '%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
+                    '%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
                 print('TEMPERATURE SENSOR OFF AT', timestamp)
                 temperature_sensor_alive = False
                 # Add the data to the global variable
@@ -175,8 +179,9 @@ class GatewayDataReceiverServerHTTP(BaseHTTPRequestHandler):
                 temperature = round(temperature, 1)
                 # str to timestamp
                 timestamp = float(timestamp)
+                # timestamp to string
                 timestamp = time.strftime(
-                    '%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
+                    '%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
                 # Display the data
                 print(f'Temperature: {temperature} C at {timestamp}')
                 temperature_sensor_alive = True
