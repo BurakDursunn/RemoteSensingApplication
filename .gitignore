@@ -13,5 +13,5 @@
 # __pycache__ will be ignored by git
 __pycache__/
 
-# Docker files
-Dockerfile
+# txt files
+*.txt
