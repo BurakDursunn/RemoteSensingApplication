@@ -1,90 +1,12 @@
 import socket
 import time
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from CONFIG import SERVER_HOST, SERVER_PORT
+from CONFIG import SERVER_HOST, SERVER_PORT, WEB_SERVER_HOST, WEB_SERVER_PORT
 
 # Global variables
 humidity_global = []
 temperature_global = []
 last_humidity = {}
-
-
-class RemoteSensingWebServer(BaseHTTPRequestHandler):
-    def do_GET(self):
-        global humidity_global, temperature_global
-        if self.path == '/humidity':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-
-            # Import and modify HTML for humidity
-            html = self.import_html('humidity.html')
-            html_content = self.replace_placeholder(
-                html, humidity_global, '<!-- humidity-data on python -->', "humidity")
-
-            # Send the HTML
-            self.wfile.write(bytes(html_content, 'utf8'))
-        elif self.path == '/temperature':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-
-            # Import and modify HTML for temperature
-            html = self.import_html('temperature.html')
-            html_content = self.replace_placeholder(
-                html, temperature_global, '<!-- temperature-data on python -->', "temperature")
-
-            # Send the HTML
-            self.wfile.write(bytes(html_content, 'utf8'))
-        elif self.path == '/gethumidity':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-
-            # if last_humidity is empty
-            if not last_humidity:
-                # Import and modify HTML for humidity
-                html = self.import_html('last_humidity.html')
-                row = f'<tr><td>No data</td><td>No data</td><td>No data</td></tr>'
-                html_content = html.replace(
-                    '<!-- humidity-data on python -->', row)
-
-                # Send the HTML
-                self.wfile.write(bytes(html_content, 'utf8'))
-            else:
-                # Import and modify HTML for humidity
-                html = self.import_html('last_humidity.html')
-                row = ''
-                row += f'<tr><td>{0}</td><td>{last_humidity["humidity"]}</td><td>{last_humidity["timestamp"]}</td></tr>'
-                html_content = html.replace(
-                    '<!-- humidity-data on python -->', row)
-
-                # Send the HTML
-                self.wfile.write(bytes(html_content, 'utf8'))
-
-    def import_html(self, file_name):
-        with open(file_name, 'r') as file:
-            html_content = file.read()
-        return html_content
-
-    def replace_placeholder(self, html_content, data, placeholder_id, sensor_name):
-        # Create a td tag for each data point
-        rows = ''
-        if sensor_name == 'humidity':
-            i = 0
-            for entry in data:
-                rows += f'<tr><td>{i}</td><td>{entry["humidity"]}</td><td>{entry["timestamp"]}</td></tr>'
-                i += 1
-        elif sensor_name == 'temperature':
-            i = 0
-            for entry in data:
-                rows += f'<tr><td>{i}</td><td>{entry["temperature"]}</td><td>{entry["timestamp"]}</td></tr>'
-                i += 1
-
-        # Replace the placeholder with the data
-        html_content = html_content.replace(placeholder_id, rows)
-        return html_content
 
 
 def timestamp_to_date(timestamp):
@@ -165,16 +87,132 @@ def server_listener():
         exit(0)
 
 
+def log_web_request_to_file(addr, request_type, request_path, response_code=200):
+    with open(f'web_requests.txt', 'a') as f:
+        f.write(
+            f'{addr[0]}:{addr[1]} - {request_type} {request_path} - {response_code}\n')
+
+
+def handle_web_request(conn, addr):
+    request_data = conn.recv(1024).decode('utf-8')
+
+    # Parse the request
+    request_lines = request_data.split('\n')
+    request_line = request_lines[0].split(' ')
+    request_type = request_line[0]
+    request_path = request_line[1]
+
+    # Send the response
+    response = ''
+    html_content = ''
+    response_code = 200
+    if request_type == 'GET':
+        if request_path == '/humidity':
+            # Send 200 OK response
+            response = "HTTP/1.1 200 OK\n"
+            html = import_html('humidity.html')
+            html_content = replace_placeholder(
+                html, humidity_global, '<!-- humidity-data on python -->', "humidity")
+        elif request_path == '/temperature':
+            # Send 200 OK response
+            response = "HTTP/1.1 200 OK\n"
+            html = import_html('temperature.html')
+            html_content = replace_placeholder(
+                html, temperature_global, '<!-- temperature-data on python -->', "temperature")
+        elif request_path == '/gethumidity':
+            # Send 200 OK response
+            response = "HTTP/1.1 200 OK\n"
+            html = import_html('last_humidity.html')
+            if not last_humidity:
+                row = f'<tr><td>No data</td><td>No data</td><td>No data</td></tr>'
+                html_content = html.replace(
+                    '<!-- humidity-data on python -->', row)
+            else:
+                row = ''
+                row += f'<tr><td>{0}</td><td>{last_humidity["humidity"]}</td><td>{last_humidity["timestamp"]}</td></tr>'
+                html_content = html.replace(
+                    '<!-- humidity-data on python -->', row)
+        else:
+            # Send 404 Not Found response
+            response = "HTTP/1.1 404 Not Found\n"
+            response_code = 404
+            html_content = import_html('404.html')
+    else:
+        # Send 405 Method Not Allowed response
+        response = "HTTP/1.1 405 Method Not Allowed\n"
+        response_code = 405
+        html_content = import_html('405.html')
+
+    conn.sendall(response.encode())
+    # Send the headers
+    response += "Content-Type: text/html\n"
+    response += "Connection: close\n\n"
+
+    # Send the response
+    conn.sendall(response.encode())
+    conn.sendall(html_content.encode())
+
+    # Log the request
+    print(
+        f"Website request from {addr[0]}:{addr[1]} - {request_type} {request_path} - {response_code}")
+    log_web_request_to_file(addr, request_type, request_path, response_code)
+
+    # Close the connection
+    conn.close()
+
+
+def import_html(file_name):
+    with open(file_name, 'r') as file:
+        html_content = file.read()
+    return html_content
+
+
+def replace_placeholder(html_content, data, placeholder_id, sensor_name):
+    # Create a td tag for each data point
+    rows = ''
+    if sensor_name == 'humidity':
+        i = 0
+        for entry in data:
+            rows += f'<tr><td>{i}</td><td>{entry["humidity"]}</td><td>{entry["timestamp"]}</td></tr>'
+            i += 1
+    elif sensor_name == 'temperature':
+        i = 0
+        for entry in data:
+            rows += f'<tr><td>{i}</td><td>{entry["temperature"]}</td><td>{entry["timestamp"]}</td></tr>'
+            i += 1
+
+    # Replace the placeholder with the data
+    html_content = html_content.replace(placeholder_id, rows)
+    return html_content
+
+
 if __name__ == "__main__":
     try:
         server_listener_thread = threading.Thread(target=server_listener)
         server_listener_thread.start()
 
-        web_server = HTTPServer(('localhost', 8080), RemoteSensingWebServer)
-        print("Web server listening on localhost:8080")
-        web_server.serve_forever()
+        # Wait for data to be received
+        while True:
+            if humidity_global or temperature_global:
+                break
 
-        server_listener_thread.join()
+        # Create a web server and listen for requests
+        web_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        web_server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        web_server_socket.bind((WEB_SERVER_HOST, WEB_SERVER_PORT))
+        web_server_socket.listen()
+
+        print(f"Web server listening on {WEB_SERVER_HOST}:{WEB_SERVER_PORT}")
+
+        while True:
+            # Accept a connection
+            conn, addr = web_server_socket.accept()
+
+            # Open thread to handle the request
+            request_handler_thread = threading.Thread(
+                target=handle_web_request, args=(conn, addr))
+            request_handler_thread.start()
+
     except KeyboardInterrupt:
         print("Exiting...")
         exit(0)
