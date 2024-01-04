@@ -87,10 +87,24 @@ class RemoteSensingWebServer(BaseHTTPRequestHandler):
         return html_content
 
 
+def timestamp_to_date(timestamp):
+    return time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
+
+
+def log_data_to_file(sensor_type, data, timestamp, type):
+    if type == 'Sent':
+        with open(f'server_sent.txt', 'a') as f:
+            f.write(f'{timestamp_to_date(timestamp)} - {sensor_type}: {data}\n')
+    elif type == 'Received':
+        with open(f'server_received.txt', 'a') as f:
+            f.write(f'{timestamp_to_date(timestamp)} - {sensor_type}: {data}\n')
+
+
 def parse_data(data):
     global humidity_global, temperature_global, last_humidity
     if data.startswith('TEMP'):
         data = data.split('|')
+        log_data_to_file('temperature', data[1], float(data[2]), 'Received')
         data[1] = float(data[1])
         data[1] = round(data[1], 1)
         data[2] = float(data[2])
@@ -100,6 +114,7 @@ def parse_data(data):
             {'temperature': f"{data[1]} °C", 'timestamp': data[2]})
     elif data.startswith('HUMID'):
         data = data.split('|')
+        log_data_to_file('humidity', data[1], float(data[2]), 'Received')
         data[1] = float(data[1])
         data[1] = round(data[1], 1)
         data[2] = float(data[2])
@@ -110,6 +125,7 @@ def parse_data(data):
         last_humidity = {'humidity': f"{data[1]} %", 'timestamp': data[2]}
     elif data.startswith('ALIVE'):
         data = data.split('|')
+        log_data_to_file('humidity', 'ALIVE', float(data[1]), 'Received')
         data[1] = float(data[1])
         data[1] = time.strftime('%d/%m/%Y %H:%M:%S',
                                 time.localtime(data[1]))
@@ -140,6 +156,7 @@ def server_listener():
                     break
 
                 data = data.decode()
+                print(f'Received: {data}')
                 parse_data(data)
 
             conn.close()
