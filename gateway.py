@@ -9,22 +9,41 @@ HUMIDITY_SENSOR_OFF_INTERVAL = 7
 CONNECTION_TIMEOUT = 15
 
 
+def timestamp_to_date(timestamp):
+    return time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
+
+
+def log_data_to_file(sensor_type, data, timestamp, type):
+    if type == 'Sent':
+        with open(f'gateway_sent.txt', 'a') as f:
+            f.write(f'{timestamp_to_date(timestamp)} - {sensor_type}: {data}\n')
+    elif type == 'Received':
+        with open(f'gateway_received.txt', 'a') as f:
+            f.write(f'{timestamp_to_date(timestamp)} - {sensor_type}: {data}\n')
+
+
 def handle_temperature_data(data, server_socket):
     temperature, timestamp = data.split('|')[1:]
     message = f'TEMP|{temperature}|{timestamp}'
     server_socket.sendall(message.encode())
+    print(f'Sent: {message}')
+    log_data_to_file('temperature', temperature, float(timestamp), 'Sent')
 
 
 def handle_humidity_data(data, server_socket):
     humidity, timestamp = data.split('|')[1:]
     message = f'HUMID|{humidity}|{timestamp}'
     server_socket.sendall(message.encode())
+    print(f'Sent: {message}')
+    log_data_to_file('humidity', humidity, float(timestamp), 'Sent')
 
 
 def handle_alive_message(server_socket, data):
     timestamp = data.split('|')[1]
     message = f'ALIVE|{timestamp}'
     server_socket.sendall(message.encode())
+    print(f'Sent: {message}')
+    log_data_to_file('humidity', 'ALIVE', float(timestamp), 'Sent')
 
 
 def handle_data(data, server_socket):
@@ -45,10 +64,11 @@ def temperature_sensor_listener(server_socket):
         last_alive_time = time.time()
         while True:
             data = temp_conn.recv(1024)
-
             if data:
                 last_alive_time = time.time()
                 data = data.decode()
+                print(f'Received: {data}')
+                log_data_to_file('temperature', data, time.time(), 'Received')
                 handle_data(data, server_socket)
             else:
                 if time.time() - last_alive_time >= TEMPERATURE_SENSOR_OFF_INTERVAL:
@@ -69,6 +89,8 @@ def humidity_sensor_listener(server_socket):
             if ready_sockets:
                 data, _ = s_hum.recvfrom(1024)
                 data = data.decode()
+                print(f'Received: {data}')
+                log_data_to_file('humidity', data, time.time(), 'Received')
                 handle_data(data, server_socket)
             else:
                 print("Humidity sensor is off")
