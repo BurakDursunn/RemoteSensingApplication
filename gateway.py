@@ -156,7 +156,6 @@ def server_socket_listener(server_socket):
                         break
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s_hum:
                     s_hum.sendto('GETHUMIDITY'.encode(), humidity_address)
-                    s_hum.close()
     except socket.error:
         print("Server is off")
         exit(0)
@@ -167,7 +166,7 @@ if __name__ == "__main__":
         server_socket.settimeout(CONNECTION_TIMEOUT)
         try:
             server_socket.connect((SERVER_HOST, SERVER_PORT))
-
+            server_socket.settimeout(None)
             # Handshake
             server_socket.sendall('GATEWAY|HANDSHAKE'.encode())
             handshake_response = server_socket.recv(1024).decode()
