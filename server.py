@@ -7,6 +7,7 @@ from CONFIG import SERVER_HOST, SERVER_PORT, WEB_SERVER_HOST, WEB_SERVER_PORT
 humidity_global = []
 temperature_global = []
 last_humidity = {}
+gateway_conn = None
 
 
 def timestamp_to_date(timestamp):
@@ -44,7 +45,6 @@ def parse_data(data):
                                 time.localtime(data[2]))
         humidity_global.append(
             {'humidity': f"{data[1]} %", 'timestamp': data[2]})
-        last_humidity = {'humidity': f"{data[1]} %", 'timestamp': data[2]}
     elif data.startswith('ALIVE'):
         data = data.split('|')
         log_data_to_file('humidity', 'ALIVE', float(data[1]), 'Received')
@@ -53,9 +53,21 @@ def parse_data(data):
                                 time.localtime(data[1]))
         humidity_global.append(
             {'humidity': 'ALIVE', 'timestamp': data[1]})
+    elif data.startswith('LASTHUMID'):
+        data = data.split('|')
+        log_data_to_file('last_humidity', data[1], float(data[2]), 'Received')
+        data[1] = float(data[1])
+        data[1] = round(data[1], 1)
+        data[2] = float(data[2])
+        data[2] = time.strftime('%d/%m/%Y %H:%M:%S',
+                                time.localtime(data[2]))
+        last_humidity = {'humidity': f"{data[1]} %", 'timestamp': data[2]}
+    else:
+        print(f"Unknown data: {data}")
 
 
 def server_listener():
+    global gateway_conn
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.bind((SERVER_HOST, SERVER_PORT))
@@ -70,6 +82,7 @@ def server_listener():
             if 'GATEWAY|HANDSHAKE' in handshake_request:
                 conn.sendall("SERVER|CONNECT".encode())
                 print("Handshake successful")
+                gateway_conn = conn
 
             while True:
                 data = conn.recv(1024)
@@ -94,6 +107,7 @@ def log_web_request_to_file(addr, request_type, request_path, response_code=200)
 
 
 def handle_web_request(conn, addr):
+    global last_humidity
     request_data = conn.recv(1024).decode('utf-8')
 
     # Parse the request
@@ -120,18 +134,21 @@ def handle_web_request(conn, addr):
             html_content = replace_placeholder(
                 html, temperature_global, '<!-- temperature-data on python -->', "temperature")
         elif request_path == '/gethumidity':
+            # Request for last humidity from gateway
+            gateway_conn.sendall('SERVER|GETHUMIDITY'.encode())
+            print('Sent: SERVER|GETHUMIDITY')
+            # Wait for data to be received from gateway
+            while True:
+                if last_humidity:
+                    break
             # Send 200 OK response
             response = "HTTP/1.1 200 OK\n"
             html = import_html('last_humidity.html')
-            if not last_humidity:
-                row = f'<tr><td>No data</td><td>No data</td><td>No data</td></tr>'
-                html_content = html.replace(
-                    '<!-- humidity-data on python -->', row)
-            else:
-                row = ''
-                row += f'<tr><td>{0}</td><td>{last_humidity["humidity"]}</td><td>{last_humidity["timestamp"]}</td></tr>'
-                html_content = html.replace(
-                    '<!-- humidity-data on python -->', row)
+            row = ''
+            row += f'<tr><td>{0}</td><td>{last_humidity["humidity"]}</td><td>{last_humidity["timestamp"]}</td></tr>'
+            html_content = html.replace(
+                '<!-- humidity-data on python -->', row)
+            last_humidity = {}
         else:
             # Send 404 Not Found response
             response = "HTTP/1.1 404 Not Found\n"
