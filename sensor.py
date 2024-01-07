@@ -61,7 +61,8 @@ def humidity_sensor():
                     s.sendto(message.encode(),
                              (HUMIDITY_SENSOR_HOST, HUMIDITY_SENSOR_PORT))
                     print(f'Sent: {message}')
-                    log_data_to_file('humidity', humidity, timestamp, 'Sent')
+                    log_data_to_file(
+                        'last_humidity', humidity, timestamp, 'Sent')
                     last_humidity_request = False
 
                 if humidity > 80:
@@ -94,7 +95,8 @@ def humidity_client_socket_listener(socket):
             if data:
                 data = data.decode()
                 print(f'Received: {data}')
-                log_data_to_file('humidity', data, time.time(), 'Received')
+                log_data_to_file('last_humidity', data,
+                                 time.time(), 'Received')
                 if data.startswith('GETHUMIDITY'):
                     global last_humidity_request
                     last_humidity_request = True
