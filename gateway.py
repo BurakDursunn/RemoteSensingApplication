@@ -11,6 +11,10 @@ CONNECTION_TIMEOUT = 15
 # Define locks
 log_lock = threading.Lock()
 server_socket_lock = threading.Lock()
+humidity_socket_lock = threading.Lock()
+
+# Define global variables
+humidity_address = None
 
 
 def timestamp_to_date(timestamp):
@@ -62,6 +66,17 @@ def handle_alive_message(server_socket, data):
         print(f"Error handling alive message: {e}")
 
 
+def handle_last_humidity_data(data, server_socket):
+    try:
+        humidity, timestamp = data.split('|')[1:]
+        message = f'LASTHUMID|{humidity}|{timestamp}'
+        server_socket.sendall(message.encode())
+        print(f'Sent: {message}')
+        log_data_to_file('last humidity', humidity, float(timestamp), 'Sent')
+    except ValueError as e:
+        print(f"Error handling last humidity data: {e}")
+
+
 def handle_data(data, server_socket):
     if data.startswith('TEMP'):
         with server_socket_lock:
@@ -72,6 +87,9 @@ def handle_data(data, server_socket):
     elif data.startswith('ALIVE'):
         with server_socket_lock:
             handle_alive_message(server_socket, data)
+    elif data.startswith('LASTHUMID'):
+        with server_socket_lock:
+            handle_last_humidity_data(data, server_socket)
 
 
 def temperature_sensor_listener(server_socket):
@@ -99,23 +117,49 @@ def temperature_sensor_listener(server_socket):
 
 
 def humidity_sensor_listener(server_socket):
+    global humidity_address
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s_hum:
         s_hum.bind((HUMIDITY_SENSOR_HOST, HUMIDITY_SENSOR_PORT))
-        while True:
-            ready_sockets, _, _ = select.select(
-                [s_hum], [], [], HUMIDITY_SENSOR_OFF_INTERVAL)
+        s_hum.settimeout(HUMIDITY_SENSOR_OFF_INTERVAL)
 
-            if ready_sockets:
-                data, _ = s_hum.recvfrom(1024)
-                data = data.decode()
-                print(f'Received: {data}')
-                log_data_to_file('humidity', data, time.time(), 'Received')
-                handle_data(data, server_socket)
-            else:
-                print("Humidity sensor is off")
-                break
-            time.sleep(1)
+        while True:
+            with humidity_socket_lock:
+                try:
+                    data, addr = s_hum.recvfrom(1024)
+                    humidity_address = addr
+                    data = data.decode()
+                    print(f'Received: {data}')
+                    log_data_to_file('humidity', data, time.time(), 'Received')
+                    handle_data(data, server_socket)
+                except socket.timeout:
+                    print("Humidity sensor is off")
+                    break
+                time.sleep(1)
         s_hum.close()
+
+
+def server_socket_listener(server_socket):
+    global humidity_address
+    try:
+        while True:
+            data = server_socket.recv(1024)
+            if not data:
+                print("Connection closed by server.")
+                break
+
+            data = data.decode()
+            print(f'Received: {data}')
+            log_data_to_file('server', data, time.time(), 'Received')
+            if data.startswith('SERVER|GETHUMIDITY'):
+                while True:
+                    if humidity_address is not None:
+                        break
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s_hum:
+                    s_hum.sendto('GETHUMIDITY'.encode(), humidity_address)
+                    s_hum.close()
+    except socket.error:
+        print("Server is off")
+        exit(0)
 
 
 if __name__ == "__main__":
@@ -129,6 +173,10 @@ if __name__ == "__main__":
             handshake_response = server_socket.recv(1024).decode()
             print(f"Handshake successful: {handshake_response}")
 
+            # Start listening to server
+            thread_server = threading.Thread(
+                target=server_socket_listener, args=(server_socket,))
+
             # Start listening to sensors
             thread_temperature = threading.Thread(
                 target=temperature_sensor_listener, args=(server_socket,))
@@ -137,9 +185,11 @@ if __name__ == "__main__":
 
             thread_temperature.start()
             thread_humidity.start()
+            thread_server.start()
 
             thread_temperature.join()
             thread_humidity.join()
+            thread_server.join()
         except KeyboardInterrupt:
             print("Exiting...")
             exit(0)
